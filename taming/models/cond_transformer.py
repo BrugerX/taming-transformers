@@ -3,6 +3,8 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
+import taming.models.vqgan
+
 from main import instantiate_from_config
 from taming.modules.util import SOSProvider
 
@@ -288,6 +290,10 @@ class Net2NetTransformer(pl.LightningModule):
             x = x[:N]
             c = c[:N]
         return x, c
+
+    def set_epsilon(self,epsilon):
+        if(type(self.first_stage_model) == taming.models.vqgan.LAPVQ):
+            self.first_stage_model.set_epsilon(epsilon)
 
     def shared_step(self, batch, batch_idx):
         x, c = self.get_xc(batch)

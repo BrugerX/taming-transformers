@@ -12,7 +12,7 @@ model:
         n_head: 16
         n_embd: 1024
     first_stage_config:
-      target: taming.models.vqgan.VQModel
+      target: taming.models.vqgan.LAPVQ
       params:
         ckpt_path: C:\Users\DripTooHard\PycharmProjects\taming-transformers2\configs\faceshq.ckpt
         embed_dim: 256
