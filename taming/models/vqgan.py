@@ -11,6 +11,8 @@ from taming.modules.vqvae.quantize import EMAVectorQuantizer
 
 import numpy as np
 
+
+
 class VQModel(pl.LightningModule):
     def __init__(self,
                  ddconfig,
