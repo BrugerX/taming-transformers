@@ -9,6 +9,8 @@ from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 from taming.modules.vqvae.quantize import GumbelQuantize
 from taming.modules.vqvae.quantize import EMAVectorQuantizer
 
+import numpy as np
+
 class VQModel(pl.LightningModule):
     def __init__(self,
                  ddconfig,
@@ -401,4 +403,62 @@ class EMAVQ(VQModel):
                                   lr=lr, betas=(0.5, 0.9))
         opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
                                     lr=lr, betas=(0.5, 0.9))
-        return [opt_ae, opt_disc], []                                           
+        return [opt_ae, opt_disc], []
+
+class LAPVQ(VQModel):
+    def __init__(self,
+                 ddconfig,
+                 lossconfig,
+                 n_embed,
+                 embed_dim,
+                 ckpt_path=None,
+                 ignore_keys=[],
+                 image_key="image",
+                 epsilon = 0,
+                 colorize_nlabels=None,
+                 monitor=None,
+                 remap=None,
+                 sane_index_shape=False,  # tell vector quantizer to return indices as bhw
+                 ):
+        super().__init__(ddconfig,
+                         lossconfig,
+                         n_embed,
+                         embed_dim,
+                         ckpt_path=None,
+                         ignore_keys=ignore_keys,
+                         image_key=image_key,
+                         colorize_nlabels=colorize_nlabels,
+                         monitor=monitor,
+                         remap=remap,
+                         sane_index_shape=sane_index_shape
+                         )
+        self.epsilon = epsilon
+
+    def laplace_mechanism(self, h):
+        n = h.shape[3]
+
+        if (self.epsilon != 0):
+            for i in range(h.shape[1]):
+                for j in range(h.shape[2]):
+                    h[0][i][j] += np.random.laplace(0, 1 / self.epsilon, n)
+
+        return h
+
+    """
+    @Arg epsilon: If set to 0, we apply no noise, else, we apply noise
+
+    """
+
+    def encode(self, x):
+        h = self.encoder(x)
+        h = self.laplace_mechanism(h)
+
+        h = self.quant_conv(h)
+        quant, emb_loss, info = self.quantize(h)
+        return quant, emb_loss, info
+
+    def set_epsilon(self,epsilon):
+        self.epsilon = epsilon
+        
+
+
