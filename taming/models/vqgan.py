@@ -433,6 +433,7 @@ class LAPVQ(VQModel):
                          sane_index_shape=sane_index_shape
                          )
         self.epsilon = epsilon
+        #Comment so we can push
 
     def laplace_mechanism(self, h):
         n = h.shape[3]
