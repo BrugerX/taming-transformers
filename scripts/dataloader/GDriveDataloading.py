@@ -5,26 +5,66 @@ import pandas as pd
 import gdrive.GDriveHandler as GDH
 
 
+class DatasetPurposeMarker:
+    def __int__(self):
+        pass
+
+    @staticmethod
+    def mark_predefined_purpose_txt(ID_DF,purpose_txt_path,purpose):
+        with open(purpose_txt_path) as f:
+            names_list = f.read().split("\n")
+            for name in names_list:
+                ID_DF.loc[ID_DF["name"] == name, "purpose"] = purpose
+
+    """
+
+    @precondition: The proportions in the purpose_proportions sum to 1
+
+    @args purpose_proportions: A dict in the format of {"purpose":%proportion in decimal for that purpose}
+
+    """
+    @staticmethod
+    def mark_purpose(ID_DF, purpose_props:dict , overwrite_proportions = True):
+
+        #First we make sure, that the proportions sum to 1/100%
+        sum_proportions = 0
+        for proportion in purpose_props.values():
+            sum_proportions += proportion
+        if(sum_proportions != 1):
+            raise Exception(f"Sum of proportions of validation, test and training dataset doesn't sum to 100%.\n Instead it sums to: {sum_proportions}")
+
+        if(overwrite_proportions):
+            ID_DF["purpose"] = None
+
+        size_of_DF = ID_DF.shape[0]
+
+        for purpose, proportion in purpose_props.items():
+            #TODO: We take % of the unmarked, but after the first iteration, this percentage will be lower than the intended percentage
+            rows_to_mark = int(size_of_DF*proportion)
+            unmarked_rows = ID_DF[ID_DF["purpose"].isna()]
+
+            if(unmarked_rows.shape[0]<rows_to_mark):
+                rows_to_mark = unmarked_rows.shape[0]
+
+            indices_to_update = unmarked_rows.sample(rows_to_mark).index
+            ID_DF.loc[indices_to_update, "purpose"] = purpose
+
+        return ID_DF
+
+
+
+
 class GDriveDataset(Dataset):
-    def __init__(self,ID_DF,config_path, transform=None):
+    def __init__(self,ID_DF,gdrive_handler, transform=None):
         """
         Initialize the dataset with Google Drive handler parameters.
 
         :param ID_DF A Pandas Dataframe in CSV format or a path to it, with a column "id" containing Google Drive IDs for each image
-        :param scopes: Scopes for Google Drive API access.
-        :param credentials_path: Path to the credentials file.
-        :param token_path: Path to the token file.
-        :param write_new_token: Whether to write a new token or use an existing one.
         :param transform: Optional transform to be applied on a sample.
         """
-        with open(config_path, 'r') as file:
-            config = yaml.safe_load(file)
 
-        gdrive_config = config['gdrive']
-        dataset_config = config['dataset']
 
-        self.gdrive_handler = GDH.GDrive_Handler(gdrive_config['scopes'], gdrive_config['credentials_path'],
-                                                 gdrive_config['write_new_token'],gdrive_config["token_path"])
+        self.gdrive_handler = gdrive_handler
         self.transform = transform
 
         if (type(ID_DF) == str):
@@ -51,3 +91,61 @@ class GDriveDataset(Dataset):
             data = self.transform(data)
 
         return data
+
+
+class ImagesDatamodule(L.LightningDataModule):
+    def __init__(self,data_path,scopes,creds_path,write_new_token = True, gdrive_token_path = "token.json",batch_size: int = 32):
+        super().__init__()
+        self.data_path = data_path
+        self.batch_size = batch_size
+
+        #Google drive related
+        self.scopes = scopes
+        self.creds_path = creds_path
+        self.write_new_token = write_new_token
+        self.gdrive_token_path = gdrive_token_path
+
+        #Instantiate our GDrive Handler
+        self.GDriveHandler = GDH.GDrive_Handler(self.scopes,self.creds_path,self.write_new_token,self.gdrive_token_path)
+
+
+        #Get the dataset
+        self.ID_DF = pd.read_csv(self.data_path)
+
+
+    def prepare_data(self):
+        #TODO: Add the thing, that uses the GDrive to get a dataset CSV
+        pass
+
+    """
+    params: purpose_proportions: A dict containing the proportions of the validation, test and training dataset, in that order. It must contain every purpose, even if any of them are 0%.
+
+    """
+    def setup(self, purpose_proportions,overwrite_purpose_markings = True):
+
+        #Mark the dataframe
+        self.ID_DF = DatasetPurposeMarker.mark_purpose(self.ID_DF,purpose_proportions,overwrite_purpose_markings)
+        purpose_keys = list(purpose_proportions.keys())
+
+        #Get the different datasets
+        self.valid_dataset = GDriveDataset(self.ID_DF[self.ID_DF["purpose"] == purpose_keys[0]],self.GDriveHandler)
+        self.test_dataset = GDriveDataset(self.ID_DF[self.ID_DF["purpose"] == purpose_keys[1]],self.GDriveHandler)
+        self.train_dataset = GDriveDataset(self.ID_DF[self.ID_DF["purpose"] == purpose_keys[2]],self.GDriveHandler)
+
+
+
+    def val_dataloader(self):
+        return DataLoader(self.valid_dataset, batch_size=self.batch_size)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_dataset, batch_size=self.batch_size)
+
+    def train_dataloader(self):
+        return DataLoader(self.train_dataset, batch_size=self.batch_size)
+
+    def predict_dataloader(self):
+        return DataLoader(self.mnist_predict, batch_size=self.batch_size)
+
+    def teardown(self, stage: str):
+        # Used to clean-up when the run is finished
+        ...
