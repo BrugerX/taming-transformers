@@ -1,10 +1,16 @@
-import io
+import os.path
+
+import json
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 import io
 from PIL import Image
 import numpy as np
+
 
 
 class GDrive_Handler:
@@ -17,7 +23,7 @@ class GDrive_Handler:
 
     """
 
-    def __init__(self,scopes,credentials_path,write_new_token = True):
+    def __init__(self, scopes, credentials_path, write_new_token=True, token_path="token.json"):
         self.credentials = self.get_drive_credentials(credentials_path,scopes,write_new_token=write_new_token)
         self.service = build("drive", "v3", credentials=self.credentials)
 
