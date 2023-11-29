@@ -24,7 +24,7 @@ class GDrive_Handler:
     """
 
     def __init__(self, scopes, credentials_path, write_new_token=True, token_path="token.json"):
-        self.credentials = self.get_drive_credentials(credentials_path,scopes,write_new_token=write_new_token)
+        self.credentials = self.get_drive_credentials(credentials_path,scopes,write_new_token=write_new_token,token_path=token_path)
         self.service = build("drive", "v3", credentials=self.credentials)
 
 
@@ -34,7 +34,7 @@ class GDrive_Handler:
     Can also save an optional access token.json file, if write_new_token = false. However this does not work for all types of scopes.
     
     """
-    def get_drive_credentials(self,credentials_path,SCOPES,write_new_token = True):
+    def get_drive_credentials(self,credentials_path,SCOPES,write_new_token = True,token_path = "json.org"):
       """Shows basic usage of the Drive v3 API.
       Prints the names and ids of the first 10 files the user has access to.
       """
@@ -42,8 +42,8 @@ class GDrive_Handler:
       # The file token.json stores the user's access and refresh tokens, and is
       # created automatically when the authorization flow completes for the first
       # time.
-      if os.path.exists("token.json") and not write_new_token:
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+      if os.path.exists(token_path) and not write_new_token:
+        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
       # If there are no (valid) credentials available, let the user log in.
       if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -54,7 +54,7 @@ class GDrive_Handler:
           )
           creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
-        with open("token.json", "w") as token:
+        with open(token_path, "w") as token:
           token.write(creds.to_json())
 
         return creds
