@@ -1,5 +1,5 @@
 import os.path
-
+from google.oauth2 import service_account
 import json
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -23,41 +23,21 @@ class GDrive_Handler:
 
     """
 
-    def __init__(self, scopes, credentials_path, write_new_token=True, token_path="token.json"):
-        self.credentials = self.get_drive_credentials(credentials_path,scopes,write_new_token=write_new_token,token_path=token_path)
+    def __init__(self, scopes, credentials_path):
+        self.credentials = self.get_drive_credentials(credentials_path,scopes)
         self.service = build("drive", "v3", credentials=self.credentials)
 
 
     """
     Gets the actual google drive credentials based off of the client credentials.
-    
-    Can also save an optional access token.json file, if write_new_token = false. However this does not work for all types of scopes.
-    
     """
-    def get_drive_credentials(self,credentials_path,SCOPES,write_new_token = True,token_path = "json.org"):
-      """Shows basic usage of the Drive v3 API.
-      Prints the names and ids of the first 10 files the user has access to.
-      """
-      creds = None
-      # The file token.json stores the user's access and refresh tokens, and is
-      # created automatically when the authorization flow completes for the first
-      # time.
-      if os.path.exists(token_path) and not write_new_token:
-        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-      # If there are no (valid) credentials available, let the user log in.
-      if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-          creds.refresh(Request())
-        else:
-          flow = InstalledAppFlow.from_client_secrets_file(
-              credentials_path, SCOPES
-          )
-          creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open(token_path, "w") as token:
-          token.write(creds.to_json())
 
+    def get_drive_credentials(self, service_account_file,scopes):
+        creds = service_account.Credentials.from_service_account_file(
+            service_account_file,
+            scopes=scopes)
         return creds
+
 
     """Returns an image in array form from Google Drive
     
@@ -99,3 +79,6 @@ class GDrive_Handler:
                 except json.JSONDecodeError:
                     print("Could not parse error details.")
             return None
+
+    def shutdown(self):
+        self.service.close()

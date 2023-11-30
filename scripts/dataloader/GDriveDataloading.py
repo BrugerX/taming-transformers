@@ -106,7 +106,7 @@ class ImagesDatamodule(L.LightningDataModule):
         self.gdrive_token_path = gdrive_token_path
 
         #Instantiate our GDrive Handler
-        self.GDriveHandler = GDH.GDrive_Handler(self.scopes,self.creds_path,self.write_new_token,self.gdrive_token_path)
+        self.GDriveHandler = GDH.GDrive_Handler(self.scopes,self.creds_path)
 
 
         #Get the dataset
@@ -118,7 +118,10 @@ class ImagesDatamodule(L.LightningDataModule):
         pass
 
     """
-    params: purpose_proportions: A dict containing the proportions of the validation, test and training dataset, in that order. It must contain every purpose, even if any of them are 0%.
+    params: purpose_proportions: A dict containing the proportions of the validation, test and training dataset, in that order.
+    It must contain every purpose, even if any of them are 0%.
+    
+    Example: {"val":0,"test":0.1,"train":0.9}
 
     """
     def setup(self, purpose_proportions,overwrite_purpose_markings = True):
@@ -148,4 +151,4 @@ class ImagesDatamodule(L.LightningDataModule):
 
     def teardown(self, stage: str):
         # Used to clean-up when the run is finished
-        ...
+        self.GDriveHandler.shutdown()
