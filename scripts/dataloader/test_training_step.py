@@ -63,16 +63,20 @@ GDDataloader = GDTL.ImagesDatamodule(ID_DF_Path,scopes,creds_path)
 prop_dict = dict({"val":0.1,"test":0.1,"train":0.8})
 GDDataloader.setup(prop_dict)
 
-train_dataloader = GDDataloader.train_dataloader()
+# Prepare CelebAHQ configurations
+config_path = fr"{root_dir}/taming-transformers/configs/faceshq_vqgan.yaml"
+celebAHQ_config = OmegaConf.load(config_path)
+print(yaml.dump(OmegaConf.to_container(celebAHQ_config)))
 
-for example_batch in iter(train_dataloader):
-    example_batch = example_batch.float()/255
+# Init model with the chosen architecture and configurations
+model = Net2NetTransformer(**celebAHQ_config.model.params)
 
-    #Prepare CelebAHQ configurations
-    config_path = fr"{root_dir}/taming-transformers/configs/faceshq_transformer.yaml"
-    celebAHQ_config = OmegaConf.load(config_path)
-    print(yaml.dump(OmegaConf.to_container(celebAHQ_config)))
 
-    #Init model with the chosen architecture and configurations
-    model = Net2NetTransformer(**celebAHQ_config.model.params)
-    print("Loss:",model.training_step({"image":example_batch,"coord":np.zeros(32)},1))
+train_dataloader = iter(GDDataloader.train_dataloader())
+
+
+for i in range(10):
+    example_batch = next(train_dataloader).float()/255
+    print("Loss:", model.training_step({"image": example_batch, "coord": np.zeros(32)}, 1,0))
+    print("Loss:", model.training_step({"image": example_batch, "coord": np.zeros(32)}, 1,1))
+
