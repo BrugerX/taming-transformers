@@ -43,7 +43,7 @@ import torchvision.transforms as transforms
 
 import main
 import taming.modules.losses.vqperceptual
-from taming.models.cond_transformer import Net2NetTransformer
+from taming.models.vqgan import LAPVQ
 
 installed_packages = {pkg.key for pkg in pkg_resources.working_set}
 missing_packages = [pkg for pkg in required_packages if pkg not in installed_packages]
@@ -69,7 +69,7 @@ celebAHQ_config = OmegaConf.load(config_path)
 print(yaml.dump(OmegaConf.to_container(celebAHQ_config)))
 
 # Init model with the chosen architecture and configurations
-model = Net2NetTransformer(**celebAHQ_config.model.params)
+model = LAPVQ(**celebAHQ_config.model.params)
 
 
 train_dataloader = iter(GDDataloader.train_dataloader())
