@@ -74,13 +74,22 @@ class VQLPIPSWithDiscriminator(nn.Module):
         return d_weight
 
     def forward(self, codebook_loss, inputs, reconstructions, optimizer_idx,
-                global_step, last_layer=None, cond=None, split="train"):
+                global_step, last_layer=None, cond=None, split="train", encoding = None,norm_penalty_weight = 1):
+
+        #Reconstruction losss
         rec_loss = torch.abs(inputs.contiguous() - reconstructions.contiguous())
+
         if self.perceptual_weight > 0:
             p_loss = self.perceptual_loss(inputs.contiguous(), reconstructions.contiguous())
             rec_loss = rec_loss + self.perceptual_weight * p_loss
         else:
             p_loss = torch.tensor([0.0])
+
+        if encoding != None:
+            encoding_norm = torch.norm(encoding)
+            norm_penalty = 0
+            if(encoding_norm>1):
+                norm_penalty = norm_penalty_weight*encoding_norm
 
         nll_loss = rec_loss
         #nll_loss = torch.sum(nll_loss) / nll_loss.shape[0]
@@ -104,7 +113,7 @@ class VQLPIPSWithDiscriminator(nn.Module):
                 d_weight = torch.tensor(0.0)
 
             disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
-            loss = nll_loss + d_weight * disc_factor * g_loss + self.codebook_weight * codebook_loss.mean()
+            loss = nll_loss + d_weight * disc_factor * g_loss + self.codebook_weight * codebook_loss.mean() + norm_penalty
 
             log = {"{}/total_loss".format(split): loss.clone().detach().mean(),
                    "{}/quant_loss".format(split): codebook_loss.detach().mean(),
@@ -134,3 +143,4 @@ class VQLPIPSWithDiscriminator(nn.Module):
                    "{}/logits_fake".format(split): logits_fake.detach().mean()
                    }
             return d_loss, log
+

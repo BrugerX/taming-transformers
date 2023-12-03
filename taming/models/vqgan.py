@@ -85,8 +85,16 @@ class VQModel(pl.LightningModule):
         return x.float()
 
     def training_step(self, batch, batch_idx, optimizer_idx):
+
+        #First we reconstruct the image
         x = self.get_input(batch, self.image_key)
-        xrec, qloss = self(x)
+        x_encoded = self.encoder(x)
+        z_quantized = self.quant_conv(x_encoded)
+
+        #Quantization loss
+        z_quantized,qloss = self.quantize(z_quantized)
+
+        xrec = self.decode(z_quantized)
 
         if optimizer_idx == 0:
             # autoencode
@@ -416,11 +424,11 @@ class LAPVQ(VQModel):
                  ckpt_path=None,
                  ignore_keys=[],
                  image_key="image",
-                 epsilon = 0,
                  colorize_nlabels=None,
                  monitor=None,
                  remap=None,
                  sane_index_shape=False,  # tell vector quantizer to return indices as bhw
+                 epsilon = 0
                  ):
         super().__init__(ddconfig,
                          lossconfig,
@@ -435,7 +443,6 @@ class LAPVQ(VQModel):
                          sane_index_shape=sane_index_shape
                          )
         self.epsilon = epsilon
-        #Comment so we can push
 
     def laplace_mechanism(self, h):
         n = h.shape[3]
@@ -462,6 +469,65 @@ class LAPVQ(VQModel):
 
     def set_epsilon(self,epsilon):
         self.epsilon = epsilon
-        
 
+
+class NLAPVQ(LAPVQ):
+    def __init__(self,
+                 ddconfig,
+                 lossconfig,
+                 n_embed,
+                 embed_dim,
+                 ckpt_path=None,
+                 ignore_keys=[],
+                 image_key="image",
+                 colorize_nlabels=None,
+                 monitor=None,
+                 remap=None,
+                 sane_index_shape=False,  # tell vector quantizer to return indices as bhw
+                 epsilon = 0
+                 ):
+        super().__init__(ddconfig,
+                         lossconfig,
+                         n_embed,
+                         embed_dim,
+                         ckpt_path=None,
+                         ignore_keys=ignore_keys,
+                         image_key=image_key,
+                         colorize_nlabels=colorize_nlabels,
+                         monitor=monitor,
+                         remap=remap,
+                         sane_index_shape=sane_index_shape,
+                         epsilon = 0
+                         )
+
+        self.epsilon = epsilon
+
+        def training_step(self, batch, batch_idx, optimizer_idx):
+
+            # First we reconstruct the image
+            x = self.get_input(batch, self.image_key)
+            x_encoded = self.encoder(x)
+            z_quantized = self.quant_conv(x_encoded)
+
+            # Quantization loss
+            z_quantized, qloss = self.quantize(z_quantized)
+
+            xrec = self.decode(z_quantized)
+
+            if optimizer_idx == 0:
+                # autoencode
+                aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
+                                                last_layer=self.get_last_layer(),encoding= x_encoded ,split="train")
+
+                self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+                self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+                return aeloss
+
+            if optimizer_idx == 1:
+                # discriminator
+                discloss, log_dict_disc = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
+                                                    last_layer=self.get_last_layer(), encoding= x_encoded, split="train")
+                self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+                self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+                return discloss
 
