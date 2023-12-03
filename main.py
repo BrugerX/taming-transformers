@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 import torch
 import torchvision
+import random
 from torch.utils.data import random_split, DataLoader, Dataset
 import pytorch_lightning as pl
 from pytorch_lightning import seed_everything
@@ -13,6 +14,10 @@ from pytorch_lightning.utilities import rank_zero_only
 
 from taming.data.utils import custom_collate
 
+random_api = random.Random()
+Xperiment_ID = random_api.randint(0,1000000)
+print(f"XPERIMENT ID: {Xperiment_ID}")
+ckpt_dir = ""
 
 def get_obj_from_str(string, reload=False):
     module, cls = string.rsplit(".", 1)
@@ -548,7 +553,7 @@ if __name__ == "__main__":
             # run all checkpoint hooks
             if trainer.global_rank == 0:
                 print("Summoning checkpoint.")
-                ckpt_path = os.path.join(ckptdir, "last.ckpt")
+                ckpt_path = os.path.join(ckptdir, f"{Xperiment_ID}last.ckpt")
                 trainer.save_checkpoint(ckpt_path)
 
         def divein(*args, **kwargs):
