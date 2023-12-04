@@ -11,13 +11,13 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
 from pytorch_lightning.utilities import rank_zero_only
+import taming.models.vqgan as vqgan
+from taming.models.cond_transformer import Net2NetTransformer
 
 from taming.data.utils import custom_collate
 
 random_api = random.Random()
-Xperiment_ID = random_api.randint(0,1000000)
-print(f"XPERIMENT ID: {Xperiment_ID}")
-ckpt_dir = ""
+ckpt_dir = "/work3/s214590/TrainingExperiment/03122023/"
 
 def get_obj_from_str(string, reload=False):
     module, cls = string.rsplit(".", 1)
@@ -106,6 +106,13 @@ def get_parser(**parser_kwargs):
         type=str,
         default="",
         help="post-postfix for default name",
+    )
+    parser.add_argument(
+        "-N",
+        "--save_after_N_batches",
+        type=int,
+        default=0,
+        help="Save checkpoints and log images after every N batches",
     )
 
     return parser
@@ -221,9 +228,10 @@ class SetupCallback(Callback):
 
 
 class ImageLogger(Callback):
-    def __init__(self, batch_frequency, max_images, clamp=True, increase_log_steps=True):
+    def __init__(self, batch_frequency, max_images,model_params ,save_after_N_batches, clamp=True, increase_log_steps=True):
         super().__init__()
         self.batch_freq = batch_frequency
+        self.save_after_N_batches = save_after_N_batches
         self.max_images = max_images
         self.logger_log_images = {
             pl.loggers.WandbLogger: self._wandb,
@@ -316,6 +324,10 @@ class ImageLogger(Callback):
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         self.log_img(pl_module, batch, batch_idx, split="train")
+        if (batch_idx%self.save_after_N_batches == 0) and (self.save_after_N_batches != 0):
+            print(trainer.model.__class__)
+            print(trainer.model.__class__ == Net2NetTransformer.__class__)
+            print(trainer.model.__class__ == vqgan.NLAPVQ.__class__)
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         self.log_img(pl_module, batch, batch_idx, split="val")
@@ -373,6 +385,9 @@ if __name__ == "__main__":
 
     parser = get_parser()
     parser = Trainer.add_argparse_args(parser)
+
+    args = parser.parse_args()
+    save_after_N_batches = args.save_after_N_batches
 
     opt, unknown = parser.parse_known_args()
     if opt.name and opt.resume:
@@ -510,7 +525,8 @@ if __name__ == "__main__":
                 "params": {
                     "batch_frequency": 750,
                     "max_images": 4,
-                    "clamp": True
+                    "clamp": True,
+                    "save_after_N_batches": save_after_N_batches
                 }
             },
             "learning_rate_logger": {
@@ -553,7 +569,7 @@ if __name__ == "__main__":
             # run all checkpoint hooks
             if trainer.global_rank == 0:
                 print("Summoning checkpoint.")
-                ckpt_path = os.path.join(ckptdir, f"{Xperiment_ID}last.ckpt")
+                ckpt_path = os.path.join(ckptdir, "last.ckpt")
                 trainer.save_checkpoint(ckpt_path)
 
         def divein(*args, **kwargs):
