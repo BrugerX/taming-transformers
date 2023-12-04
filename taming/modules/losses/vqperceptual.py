@@ -85,9 +85,10 @@ class VQLPIPSWithDiscriminator(nn.Module):
         else:
             p_loss = torch.tensor([0.0])
 
+        norm_penalty = 0
+
         if encoding != None:
             encoding_norm = torch.norm(encoding)
-            norm_penalty = 0
             if(encoding_norm>1):
                 norm_penalty = norm_penalty_weight*encoding_norm
 
