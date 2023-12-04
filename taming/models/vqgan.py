@@ -92,7 +92,7 @@ class VQModel(pl.LightningModule):
         z_quantized = self.quant_conv(x_encoded)
 
         #Quantization loss
-        z_quantized,qloss = self.quantize(z_quantized)
+        z_quantized,qloss,_ = self.quantize(z_quantized)
 
         xrec = self.decode(z_quantized)
 
@@ -513,7 +513,7 @@ class NLAPVQ(LAPVQ):
             z_quantized = self.quant_conv(x_encoded)
 
             # Quantization loss
-            z_quantized, qloss = self.quantize(z_quantized)
+            z_quantized, qloss,_ = self.quantize(z_quantized)
 
             xrec = self.decode(z_quantized)
 
