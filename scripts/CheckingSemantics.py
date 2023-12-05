@@ -1,29 +1,38 @@
-import random
+import argparse
 import pandas as pd
-from PIL import Image,ImageShow
+from PIL import Image
 import torch
 import yaml
 from omegaconf import OmegaConf
 import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
 import glob
 import os
+import taming.modules.losses.vqperceptual
+import taming.models.vqgan
 from taming.models.cond_transformer import Net2NetTransformer
 from scipy.spatial.distance import euclidean
 
-#Generate an ID to identify this experiment
-random_generator = random.Random()
-DF_id = random_generator.randint(0,10000)
-print(f"EXPERIMENT ID: {DF_id}")
+parser = argparse.ArgumentParser(
+                    prog='Semantic-LR Datagathering',
+                    description='Gathers data that we can use to look at the relationship between the semantic space and the latent space',
+                    epilog='Text at the bottom of help')
+
+parser.add_argument("-Nr",'--nr_worker',type=int)
+parser.add_argument('-M', '--nr_paths',type=int)      # option that takes a value
+
+args = parser.parse_args()
+M = args.nr_paths
+nr_worker = args.nr_worker
 
 #We create a folder to host the experiment in:
-xperiment_folder_dir = f"{DF_id}SemanticsExperiment\\"
+xperiment_folder_dir = f"{nr_worker}SemanticsExperiment\\"
+
 if not os.path.exists(xperiment_folder_dir):
     os.makedirs(xperiment_folder_dir)
 
-M = 20
-
 # Prepare CelebAHQ configurations
-config_path = fr"C:\Users\DripTooHard\PycharmProjects\taming-transformers2\configs\faceshq_transformer.yaml"
+config_path = fr"../configs/faceshq_transformer.yaml"
 celebAHQ_config = OmegaConf.load(config_path)
 print(yaml.dump(OmegaConf.to_container(celebAHQ_config)))
 
@@ -31,7 +40,7 @@ print(yaml.dump(OmegaConf.to_container(celebAHQ_config)))
 model = Net2NetTransformer(**celebAHQ_config.model.params)
 
 #Load checkpoints
-ckpt_path = r"C:\Users\DripTooHard\PycharmProjects\taming-transformers2\configs\faceshq.ckpt"
+ckpt_path = r"../configs/faceshq.ckpt"
 sd = torch.load(ckpt_path, map_location="cpu")["state_dict"]
 model.load_state_dict(sd)
 missing, unexpected = model.load_state_dict(sd, strict=False)
@@ -47,7 +56,7 @@ image_paths_DF_path = "image_paths_DF.csv"
 try:
     image_paths_DF = pd.read_csv(f"{xperiment_folder_dir}{image_paths_DF_path}")
 except:
-    data_dir_path = r"C:\Users\DripTooHard\PycharmProjects\taming-transformers2\data\00000-20231203T065959Z-001\00000"
+    data_dir_path = r"../data/00000-20231203T065959Z-001/00000"
 
     data_directory = os.fsencode(data_dir_path)
 
@@ -61,10 +70,33 @@ except:
     image_paths_DF.to_csv(f"{xperiment_folder_dir}{image_paths_DF_path}")
 
 
+# Takes a first stage model and returns a dataframe of distances between codes in the model's codebook
+def codebook_distances(first_stage_model):
+    results = []
+
+    for codebook in first_stage_model.quantize.parameters():
+        for idx,code in enumerate(codebook):
+            for i in range(idx + 1, codebook.shape[0]):
+                code_i = codebook[i]
+                results.append({"idx_1":idx,"idx_2":i,"distance":euclidean(code,code_i)})
+
+    return pd.DataFrame.from_dict(results)
+
+codebook_edges_path = "codebook_edges.csv"
+
+try:
+    codebook_edges_DF = pd.read_csv(f"{xperiment_folder_dir}{codebook_edges_path}")
+except:
+    codebook_edges_DF = codebook_distances(model.first_stage_model)
+    codebook_edges_DF.to_csv(f"{xperiment_folder_dir}{codebook_edges_path}")
+
+def calculate_average_distance(row,df,source,target, weight = "distance"):
+    return df[df[source] == row[target]][weight].mean()
 
 
 def load_image_VQGAN(image_path):
      image_list = []
+
      for filename in glob.glob(image_path):
          im=Image.open(filename)
 
@@ -76,21 +108,29 @@ def load_image_VQGAN(image_path):
 
      return im.unsqueeze(0)
 
+#index_popularity: A dict that records the count of each index
+#Quantized_indices: A tensor/list of shape [[idx1,idx2,...,idx_n]]
+def record_popularity(index_popularity,quantized_indices):
 
-def representation_worker(paths_list):
-    image_array = []
+    for index in quantized_indices[0]:
+        index = int(index)
+        try:
+            index_popularity[index] += 1
+        except:
+            index_popularity[index] = 1
 
-    for image_path in paths_list:
-        image_tensor = load_image_VQGAN(image_path)
-        latent_representation = model.first_stage_model.encoder(image_tensor)
-        quantized_representation = model.first_stage_model.quant_conv(latent_representation)
-        quantized_representation, _, _ = model.first_stage_model.quantize(quantized_representation)
-        reconstruction = model.first_stage_model.decode(quantized_representation)
-        image_array += [
-            {"image_path": image_path, "image_original": image_tensor, "latent_representation": latent_representation,
-             "quantized_representation": quantized_representation, "image_reconstruction": reconstruction}]
 
-    return image_array
+def representation_worker(model,paths_list):
+     image_array = []
+
+     for image_path in paths_list:
+          image_tensor = load_image_VQGAN(image_path)
+          latent_representation = model.first_stage_model.encoder(image_tensor)
+          quantized_representation,quantized_indices = model.encode_to_z(image_tensor)
+          reconstruction = model.decode_to_img(quantized_indices,quantized_representation.shape)
+          image_array += [{"image_path":image_path,"image_original":image_tensor,"latent_representation":latent_representation,"quantized_indices":quantized_indices,"image_reconstruction":reconstruction}]
+
+     return image_array
 
 import threading
 import queue
@@ -112,146 +152,57 @@ def divide_paths_for_workers(num_workers, image_paths_list):
         start = end
 
     return paths_per_thread
-"""
-This is the parallel version
 
-def representation_worker(paths_list, result_queue):
+
+def parallel_representation_worker(model,paths_list, representation_queue):
     image_array = []
 
     for image_path in paths_list:
         image_tensor = load_image_VQGAN(image_path)
         latent_representation = model.first_stage_model.encoder(image_tensor)
-        quantized_representation = model.first_stage_model.quant_conv(latent_representation)
-        quantized_representation, _, _ = model.first_stage_model.quantize(quantized_representation)
-        reconstruction = model.first_stage_model.decode(quantized_representation)
-        image_array.append({"image_path": image_path, "image_original": image_tensor,
-                            "latent_representation": latent_representation,
-                            "quantized_representation": quantized_representation,
-                            "image_reconstruction": reconstruction})
+        quantized_representation,quantized_indices = model.encode_to_z(image_tensor)
+        reconstruction = model.decode_to_img(quantized_indices,quantized_representation.shape)
+        image_array += [{"image_path":image_path,"image_original":image_tensor,"latent_representation":latent_representation,"quantized_indices":quantized_indices,"image_reconstruction":reconstruction}]
 
-    result_queue.put(image_array)
-"""
-def worker(paths, result_queue):
-    representation_worker(paths, result_queue)
 
+    representation_queue.put(image_array)
+
+def worker(model,paths, result_queue):
+    parallel_representation_worker(model,paths, result_queue)
 
 #Name of DF with the different representations
 representations_DF_path = "representation_DF.csv"
+import time
+
+start = time.time()
 try:
     representations_DF = pd.read_csv(f"{xperiment_folder_dir}{representations_DF_path}")
 except:
 
-    num_workers = 1 #Number of cores used
-
     image_arrays = []
-    image_paths_list = image_paths_DF["path"].iloc[0:M].tolist()
-
-    """
-    result_queue = queue.Queue()
-    threads = []
-    paths_per_thread = divide_paths_for_workers(num_workers, image_paths_list)
+    image_paths_list = image_paths_DF["path"].iloc[M*(nr_worker-1):M*nr_worker].tolist()
 
 
-    # Create and start threads
-    for paths in paths_per_thread:
-        thread = threading.Thread(target=worker, args=(paths, result_queue))
-        thread.start()
-        threads.append(thread)
-
-    # Wait for all threads to finish
-    for thread in threads:
-        thread.join()
-
-    # Aggregate results
-    all_results = []
-    while not result_queue.empty():
-        all_results.extend(result_queue.get())
-
-    """
-
-    representation_DF =  pd.DataFrame.from_dict(representation_worker(image_paths_list))
+    representations = representation_worker(model,image_paths_list)
+    representation_DF = pd.DataFrame.from_dict(representations)
     representation_DF.to_csv(f"{xperiment_folder_dir}{representations_DF_path}")
-    print("Done with latent representation DF")
 
 
-def flatten_latent_representation(latent_rep):
-    return latent_rep.reshape(-1, latent_rep.shape[1])
+    representations_DF =  pd.DataFrame.from_dict(representations)
+    representations_DF.to_csv(f"{xperiment_folder_dir}{representations_DF_path}")
+    print(representations_DF)
 
-latent_representation_DF_path = "latent_representation_DF.csv"
-
+empirical_codes_DF_path = "empirical_codes.csv"
 try:
-    latent_representations_DF = pd.read_csv(f"{xperiment_folder_dir}{latent_representation_DF_path}")
+    empirical_codes_DF = pd.read_csv(f"{xperiment_folder_dir}{empirical_codes_DF_path}")
 except:
-    results = []
-    # Iterate over each combination of rows
-    for i in range(len(representation_DF)):
-        for j in range(i+1, len(representation_DF)):  # Start from i+1 to avoid duplicate pairs and comparing with itself
-            distance =  0
-            row_i = representation_DF.iloc[i]
-            row_j = representation_DF.iloc[j]
+    for row in representations_DF["quantized_indices"]:
+        popularity_dict = dict()
+        record_popularity(popularity_dict,row)
 
-            # Flatten the latent representations
-            flat_i = flatten_latent_representation(row_i['latent_representation'])
-            flat_j = flatten_latent_representation(row_j['latent_representation'])
-
-            # Ensure both have the same number of vectors
-            if flat_i.shape[0] != flat_j.shape[0]:
-                raise ValueError("Mismatch in the number of vectors in the latent representations")
-
-            # Calculate distances between corresponding vectors
-            for vec_index in range(flat_i.shape[0]):
-                vec_i = flat_i[vec_index]
-                vec_j = flat_j[vec_index]
-                distance =+ euclidean(vec_i, vec_j)
-
-            # Append the result as a dictionary
-            results.append({
-                "image_path_1": row_i['image_path'],
-                "image_path_2": row_j['image_path'],
-                "distance": distance
-            })
+    empirical_codes_DF = pd.DataFrame.from_dict(popularity_dict.items()).rename(columns={0:"idx",1:"frequency"})
+    empirical_codes_DF.to_csv(f"{xperiment_folder_dir}{empirical_codes_DF_path}")
 
 
-    latent_representation_DF = pd.DataFrame.from_dict(results)
-    latent_representation_DF.to_csv(f"{xperiment_folder_dir}{latent_representation_DF_path}")
-    print("Done with latent RP DF")
 
 
-quantized_representation_DF_path = "quantized_representation_DF.csv"
-
-try:
-    latent_representations_DF = pd.read_csv(f"{xperiment_folder_dir}{quantized_representation_DF_path}")
-except:
-    results = []
-    # Iterate over each combination of rows
-    for i in range(len(representation_DF)):
-        for j in range(i+1, len(representation_DF)):  # Start from i+1 to avoid duplicate pairs and comparing with itself
-            distance =  0
-            row_i = representation_DF.iloc[i]
-            row_j = representation_DF.iloc[j]
-
-            # Flatten the latent representations
-            flat_i = flatten_latent_representation(row_i['quantized_representation'])
-            flat_j = flatten_latent_representation(row_j['quantized_representation'])
-
-            # Ensure both have the same number of vectors
-            if flat_i.shape[0] != flat_j.shape[0]:
-                raise ValueError("Mismatch in the number of vectors in the latent representations")
-
-            # Calculate distances between corresponding vectors
-            for vec_index in range(flat_i.shape[0]):
-                vec_i = flat_i[vec_index]
-                vec_j = flat_j[vec_index]
-                distance =+ euclidean(vec_i, vec_j)
-
-            # Append the result as a dictionary
-            results.append({
-                "image_path_1": row_i['image_path'],
-                "image_path_2": row_j['image_path'],
-                "distance": distance
-            })
-
-
-    latent_representation_DF = pd.DataFrame.from_dict(results)
-    latent_representation_DF.to_csv(f"{xperiment_folder_dir}{quantized_representation_DF_path}")
-    print("Done with quantized rp DF")
