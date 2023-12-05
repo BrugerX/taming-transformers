@@ -11,13 +11,10 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
 from pytorch_lightning.utilities import rank_zero_only
-import taming.models.vqgan as vqgan
-from taming.models.cond_transformer import Net2NetTransformer
 
 from taming.data.utils import custom_collate
 
 random_api = random.Random()
-ckpt_dir = "/work3/s214590/TrainingExperiment/03122023/"
 
 def get_obj_from_str(string, reload=False):
     module, cls = string.rsplit(".", 1)
@@ -228,10 +225,11 @@ class SetupCallback(Callback):
 
 
 class ImageLogger(Callback):
-    def __init__(self, batch_frequency, max_images,model_params ,save_after_N_batches, clamp=True, increase_log_steps=True):
+    def __init__(self, batch_frequency, max_images,save_after_N_batches, spare_checkpoint_path , clamp=True, increase_log_steps=True):
         super().__init__()
         self.batch_freq = batch_frequency
         self.save_after_N_batches = save_after_N_batches
+        self.spare_checkpoint_path = spare_checkpoint_path
         self.max_images = max_images
         self.logger_log_images = {
             pl.loggers.WandbLogger: self._wandb,
@@ -325,9 +323,7 @@ class ImageLogger(Callback):
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         self.log_img(pl_module, batch, batch_idx, split="train")
         if (batch_idx%self.save_after_N_batches == 0) and (self.save_after_N_batches != 0):
-            print(trainer.model.__class__)
-            print(trainer.model.__class__ == Net2NetTransformer.__class__)
-            print(trainer.model.__class__ == vqgan.NLAPVQ.__class__)
+            trainer.save_checkpoint(self.spare_checkpoint_path)
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         self.log_img(pl_module, batch, batch_idx, split="val")
@@ -388,6 +384,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     save_after_N_batches = args.save_after_N_batches
+    ckptdir = f"/work3/s214590/TrainingExperiment/{args.name}/"
+    
 
     opt, unknown = parser.parse_known_args()
     if opt.name and opt.resume:
@@ -426,7 +424,6 @@ if __name__ == "__main__":
         nowname = now+name+opt.postfix
         logdir = os.path.join("logs", nowname)
 
-    ckptdir = os.path.join(logdir, "checkpoints")
     cfgdir = os.path.join(logdir, "configs")
     seed_everything(opt.seed)
 
@@ -526,7 +523,8 @@ if __name__ == "__main__":
                     "batch_frequency": 750,
                     "max_images": 4,
                     "clamp": True,
-                    "save_after_N_batches": save_after_N_batches
+                    "save_after_N_batches": save_after_N_batches,
+                    "spare_checkpoint_path": os.path.join(logdir,"spare_ckpt.ckpt")
                 }
             },
             "learning_rate_logger": {
@@ -586,6 +584,7 @@ if __name__ == "__main__":
                 trainer.fit(model, data)
             except Exception:
                 melk()
+                print("File has been saved")
                 raise
         if not opt.no_test and not trainer.interrupted:
             trainer.test(model, data)
