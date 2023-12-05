@@ -35,7 +35,7 @@ model:
           - 16
           dropout: 0.0
         lossconfig:
-          target: taming.modules.losses.DummyLoss
+          target: taming.modules.losses.vqperceptual.DummyLoss
     cond_stage_config:
       target: taming.modules.misc.coord.CoordStage
       params:
