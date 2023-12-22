@@ -53,11 +53,6 @@ if missing_packages:
 
 root_dir = "/zhome/56/7/169073"
 
-ID_DF_Path = rf"{root_dir}/taming-transformers/scripts/dataloader/gdrive/FFHQimages.csv"
-config_path = fr"{root_dir}/taming-transformers/configs/gdrive_FFHQ.yaml"
-scopes = ["https://www.googleapis.com/auth/drive.readonly"]
-creds_path = fr"{root_dir}/taming-transformers/scripts/dataloader/gdrive/deep-learning-2023-405822-135193813109.json"
-access_token_path = fr"{root_dir}/taming-transformers/scripts/dataloader/test.json"
 
 GDDataloader = GDTL.ImagesDatamodule(ID_DF_Path,scopes,creds_path)
 prop_dict = dict({"val":0.1,"test":0.1,"train":0.8})
