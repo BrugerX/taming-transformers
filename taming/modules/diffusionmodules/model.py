@@ -430,6 +430,22 @@ class Encoder(nn.Module):
         h = self.norm_out(h)
         h = nonlinearity(h)
         h = self.conv_out(h)
+
+        """
+        h.permute(0,2,3,1)
+
+        for i in range(h.shape[1]):  # iterating over the first 64
+            for j in range(h.shape[2]):  # iterating over the second 64
+                # Extract the vector and store it
+                vec = h[0, i, j, :]  # this gives you the [256] vector
+
+                norm = np.linalg.norm(vec)
+                h[0][i][j] = vec/norm
+
+        h.permute(0,3,1,2)
+        print(h.shape)
+        """
+
         return h
 
 

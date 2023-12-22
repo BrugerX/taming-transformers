@@ -27,6 +27,7 @@ class FacesHQTransform:
         # you might want to add a channel dimension (H, W, C) where C=1
         if len(tensor_img.shape) == 2:
             tensor_img = tensor_img.unsqueeze(0)
+
         tensor_img = tensor_img.permute(2,0,1)
 
         return tensor_img
