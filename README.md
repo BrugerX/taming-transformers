@@ -1,3 +1,8 @@
+# Note for the DL course at DTU
+
+You need to manually install the checkpoints and YAML files used in the project, if you intend to run any of it.
+They're the ones from the official Taming-Transformer's README, and can be found below.
+
 # Taming Transformers for High-Resolution Image Synthesis
 ##### CVPR 2021 (Oral)
 ![teaser](assets/mountain.jpeg)
